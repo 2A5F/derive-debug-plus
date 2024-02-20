@@ -2,6 +2,8 @@
 
 This crate implements a more customizable version of `#[derive(Debug)]`.
 
+***This is a fork of [derive-debug](https://github.com/Rob2309/derive-debug). The difference from the original is the addition of `alias_expr`)***
+
 # Usage
 The usage is very similar to `#[derive(Debug)]` with a few extra customization options.
 
