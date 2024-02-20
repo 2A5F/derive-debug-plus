@@ -241,7 +241,7 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
 
         if !matches!(
             options.print_type,
-            FieldPrintType::Placeholder(_) | FieldPrintType::Expr(_)
+            FieldPrintType::Placeholder(_)
         ) {
             res.extend(quote! {
                 let #alias_ident = #field_ref;
@@ -311,7 +311,7 @@ fn derive_unnamed_fields(
 
         if !matches!(
             options.print_type,
-            FieldPrintType::Placeholder(_) | FieldPrintType::Expr(_)
+            FieldPrintType::Placeholder(_)
         ) {
             res.extend(quote! {
                 let #alias_ident = #field_ref;
