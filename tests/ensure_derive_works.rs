@@ -3,7 +3,7 @@
 use derive_debug_plus::Dbg;
 
 #[derive(Dbg, Default)]
-#[dbg(alias_expr = "\"TestStructAlias\"")]
+#[dbg(alias = &format!("TestStructAlias {}", 123))]
 struct TestStruct {
     plain_field: u32,
     #[dbg(skip)]
@@ -16,6 +16,8 @@ struct TestStruct {
     alias_placeholder_field: u32,
     #[dbg(fmt = "{:#06X}")]
     fmt_field: u32,
+    #[dbg(expr = &"123")]
+    expr_field: u32,
 }
 
 #[test]
@@ -28,19 +30,20 @@ fn test_struct() {
     assert_eq!(
         format!("\n{:#?}\n", foo),
         r#"
-TestStructAlias {
+TestStructAlias 123 {
     plain_field: 0,
     alias_field_alias: 0,
     placeholder_field: ...,
     alias_placeholder_field_alias: abc,
     fmt_field: 0x00AB,
+    expr_field: "123",
 }
 "#
     );
 }
 
 #[derive(Dbg)]
-struct TestTuple(u32, #[dbg(formatter = "fmt_not_zero")] u32);
+struct TestTuple(u32, #[dbg(formatter = fmt_not_zero)] u32);
 
 fn fmt_not_zero(v: &u32) -> &'static str {
     if *v == 0 {

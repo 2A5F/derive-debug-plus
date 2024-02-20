@@ -2,7 +2,10 @@
 
 This crate implements a more customizable version of `#[derive(Debug)]`.
 
-***This is a fork of [derive-debug](https://github.com/Rob2309/derive-debug). The difference from the original is the addition of `alias_expr`)***
+### ***This is a fork of [derive-debug](https://github.com/Rob2309/derive-debug)***  
+#### The difference
+- alias allow expr
+- expr option
 
 # Usage
 The usage is very similar to `#[derive(Debug)]` with a few extra customization options.
@@ -75,24 +78,13 @@ enum Foo {
     #[derive(Dbg)]
     struct Foo {
         field_a: bool,
-        #[dbg(alias="not_field_b")]
+        #[dbg(alias = "not_field_b")]
         field_b: u32,
+        #[dbg(alias = &format("expr_{}", "b"))]
+        field_c: u32,
     }
 
-    // Outputs: Foo { field_a: true, not_field_b: 42 }
-```
-- `#[dbg(alias_expr = "\"some_alias\"")]` will print `some_alias` as field name instead of the real name
-```rust
-    use derive_debug::Dbg;
-
-    #[derive(Dbg)]
-    struct Foo {
-        field_a: bool,
-        #[dbg(alias="\"not_field_b\"")]
-        field_b: u32,
-    }
-
-    // Outputs: Foo { field_a: true, not_field_b: 42 }
+    // Outputs: Foo { field_a: true, not_field_b: 42, expr_b: 137 }
 ```
 - `#[dbg(fmt = "{:#06X}")]` will print the field with the specified format
 ```rust
@@ -124,6 +116,19 @@ The function has to return a type that can be formatted using "{}"
     }
 
     // Outputs: Foo(42, not 0)
+```
+- `#[dbg(expr = &"123")]` will pass the expression directly into
+```rust
+    use derive_debug::Dbg;
+
+    #[derive(Dbg)]
+    struct Foo {
+        field_a: bool,
+        #[dbg(expr = &"123")]
+        field_b: u32,
+    }
+
+    // Outputs: Foo { field_a: true, field_b: "123" }
 ```
 
 ### Enum Variant Options

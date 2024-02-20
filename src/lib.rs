@@ -3,8 +3,9 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
-    parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Expr, Fields, FieldsNamed,
-    FieldsUnnamed, Ident, Lit, LitStr, Meta, MetaNameValue, NestedMeta, Path, Variant,
+    parse_macro_input, punctuated::Punctuated, spanned::Spanned, token::Comma, Attribute, DataEnum,
+    DataStruct, DeriveInput, Error, Expr, Fields, FieldsNamed, FieldsUnnamed, Ident, LitStr,
+    Meta, Path, Token, Variant,
 };
 
 /// Derive macro generating an implementation of [`Debug`](std::fmt::Debug)
@@ -26,10 +27,8 @@ fn derive_debug_impl(item: DeriveInput) -> TokenStream {
         Err(e) => return e.to_compile_error(),
     };
 
-    let display_name = if let Some(alias_expr) = options.alias_expr {
-        alias_expr
-    } else if let Some(alias) = options.alias {
-        syn::parse_quote! { #alias }
+    let display_name = if let Some(alias) = options.alias {
+        alias
     } else {
         let alias = name.to_string();
         syn::parse_quote_spanned! { name.span() => #alias }
@@ -106,10 +105,8 @@ fn derive_enum_variants<'a>(
 
         let options = parse_options(&variant.attrs, OptionsTarget::EnumVariant)?;
 
-        let display_name = if let Some(alias_expr) = options.alias_expr {
-            alias_expr
-        } else if let Some(alias) = options.alias {
-            syn::parse_quote! { #alias }
+        let display_name = if let Some(alias) = options.alias {
+            alias
         } else {
             let alias = name.to_string();
             syn::parse_quote_spanned! { name.span() => #alias }
@@ -207,10 +204,8 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
 
         let options = parse_options(&field.attrs, OptionsTarget::NamedField)?;
 
-        let name_str = if let Some(alias_expr) = options.alias_expr {
-            alias_expr
-        } else if let Some(alias) = options.alias {
-            syn::parse_quote! { #alias }
+        let name_str = if let Some(alias) = options.alias {
+            alias
         } else {
             let alias = name.to_string();
             syn::parse_quote_spanned! { name.span() => #alias }
@@ -246,6 +241,7 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
                     quote! { .field(#name_str, &format_args!("{}", #formatter(#field_ref))) },
                 )
             }
+            FieldPrintType::Expr(expr) => res.extend(quote! { .field(#name_str, #expr) }),
             FieldPrintType::Skip => {}
         }
     }
@@ -293,6 +289,9 @@ fn derive_unnamed_fields(
                 };
                 res.extend(quote! { .field(&format_args!("{}", #formatter(#field_ref))) });
             }
+            FieldPrintType::Expr(expr) => {
+                res.extend(quote! { .field(#expr) });
+            }
             FieldPrintType::Skip => {}
         }
     }
@@ -306,12 +305,12 @@ enum FieldPrintType {
     Skip,
     Format(LitStr),
     Custom(Path),
+    Expr(Expr),
 }
 
 struct FieldOutputOptions {
     print_type: FieldPrintType,
-    alias: Option<String>,
-    alias_expr: Option<Expr>,
+    alias: Option<Expr>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -329,15 +328,15 @@ fn parse_options(
     let mut res = FieldOutputOptions {
         print_type: FieldPrintType::Normal,
         alias: None,
-        alias_expr: None,
     };
 
     for attrib in attributes {
-        if !attrib.path.is_ident("dbg") {
+        let meta = &attrib.meta;
+
+        if !meta.path().is_ident("dbg") {
             continue;
         }
 
-        let meta = attrib.parse_meta()?;
         let meta = if let Meta::List(m) = meta {
             m
         } else {
@@ -347,64 +346,119 @@ fn parse_options(
             ));
         };
 
-        for option in meta.nested {
-            match option {
-                NestedMeta::Meta(Meta::Path(option))
-                    if option.is_ident("skip") && target != OptionsTarget::DeriveItem =>
-                {
+        let options: OptionItems = syn::parse2(meta.tokens.clone())?;
+
+        for option in options.options {
+            match option.option {
+                TheOption::Skip if target != OptionsTarget::DeriveItem => {
                     res.print_type = FieldPrintType::Skip
                 }
-                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                    path,
-                    lit: Lit::Str(placeholder),
-                    ..
-                })) if path.is_ident("placeholder")
-                    && (target == OptionsTarget::NamedField
-                        || target == OptionsTarget::UnnamedField) =>
+                TheOption::Alias(alias) if target != OptionsTarget::UnnamedField => {
+                    res.alias = Some(alias)
+                }
+                TheOption::Placeholder(placeholder)
+                    if target == OptionsTarget::NamedField
+                        || target == OptionsTarget::UnnamedField =>
                 {
                     res.print_type = FieldPrintType::Placeholder(placeholder.value())
                 }
-                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                    path,
-                    lit: Lit::Str(alias),
-                    ..
-                })) if path.is_ident("alias") && target != OptionsTarget::UnnamedField => {
-                    res.alias = Some(alias.value())
-                }
-                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                    path,
-                    lit: Lit::Str(alias_expr),
-                    ..
-                })) if path.is_ident("alias_expr") && target != OptionsTarget::UnnamedField => {
-                    let expr = syn::parse_str::<Expr>(&alias_expr.value())?;
-                    res.alias_expr = Some(expr)
-                }
-                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                    path,
-                    lit: Lit::Str(fmt),
-                    ..
-                })) if path.is_ident("fmt")
-                    && (target == OptionsTarget::NamedField
-                        || target == OptionsTarget::UnnamedField) =>
+                TheOption::Fmt(fmt)
+                    if target == OptionsTarget::NamedField
+                        || target == OptionsTarget::UnnamedField =>
                 {
                     res.print_type = FieldPrintType::Format(fmt)
                 }
-                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                    path,
-                    lit: Lit::Str(custom),
-                    ..
-                })) if path.is_ident("formatter")
-                    && (target == OptionsTarget::NamedField
-                        || target == OptionsTarget::UnnamedField) =>
+                TheOption::Expr(expr) => res.print_type = FieldPrintType::Expr(expr),
+                TheOption::Formatter(path)
+                    if target == OptionsTarget::NamedField
+                        || target == OptionsTarget::UnnamedField =>
                 {
-                    let path = syn::parse_str::<Path>(&custom.value())
-                        .map_err(|e| syn::Error::new(custom.span(), e.to_string()))?;
-                    res.print_type = FieldPrintType::Custom(path);
+                    res.print_type = FieldPrintType::Custom(path)
                 }
-                _ => return Err(syn::Error::new_spanned(option, "invalid option")),
+                _ => return Err(syn::Error::new_spanned(option.path, "invalid option")),
             }
         }
     }
 
     Ok(res)
+}
+
+struct OptionItems {
+    pub options: Punctuated<OptionItem, Comma>,
+}
+
+impl syn::parse::Parse for OptionItems {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let options = Punctuated::<OptionItem, Comma>::parse_separated_nonempty(input)?;
+        Ok(Self { options })
+    }
+}
+
+struct OptionItem {
+    pub path: Path,
+    pub option: TheOption,
+}
+
+enum TheOption {
+    Skip,
+    Alias(Expr),
+    Placeholder(LitStr),
+    Fmt(LitStr),
+    Expr(Expr),
+    Formatter(Path),
+}
+
+impl syn::parse::Parse for OptionItem {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let path: Path = input.parse()?;
+
+        if path.is_ident("skip") {
+            return Ok(Self {
+                path,
+                option: TheOption::Skip,
+            });
+        }
+        if path.is_ident("alias") {
+            let _ = input.parse::<Token![=]>()?;
+            let a = input.parse()?;
+            return Ok(Self {
+                path,
+                option: TheOption::Alias(a),
+            });
+        }
+        if path.is_ident("placeholder") {
+            let _ = input.parse::<Token![=]>()?;
+            let a = input.parse()?;
+            return Ok(Self {
+                path,
+                option: TheOption::Placeholder(a),
+            });
+        }
+        if path.is_ident("fmt") {
+            let _ = input.parse::<Token![=]>()?;
+            let a = input.parse()?;
+            return Ok(Self {
+                path,
+                option: TheOption::Fmt(a),
+            });
+        }
+        if path.is_ident("expr") {
+            let _ = input.parse::<Token![=]>()?;
+            let a = input.parse()?;
+            return Ok(Self {
+                path,
+                option: TheOption::Expr(a),
+            });
+        }
+        if path.is_ident("formatter") {
+            let _ = input.parse::<Token![=]>()?;
+            let a = input.parse()?;
+            return Ok(Self {
+                path,
+                option: TheOption::Formatter(a),
+            });
+        }
+
+        Err(Error::new(path.span(), "invalid option"))
+    }
 }
