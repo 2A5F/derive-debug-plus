@@ -1,9 +1,9 @@
 #![allow(unused, clippy::enum_variant_names, clippy::disallowed_names)]
 
-use derive_debug::Dbg;
+use derive_debug_plus::Dbg;
 
 #[derive(Dbg, Default)]
-#[dbg(alias = "TestStructAlias")]
+#[dbg(alias_expr = "\"TestStructAlias\"")]
 struct TestStruct {
     plain_field: u32,
     #[dbg(skip)]

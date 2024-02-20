@@ -1,20 +1,20 @@
 [package]
-name = "derive-debug"
-version = "0.1.2"
-authors = [ "Robin Quint" ]
-edition = "2021"
+authors = ["Robin Quint", "2A5F"]
+categories = ["development-tools", "development-tools::debugging"]
 description = "Customizable derive macro for Debug trait"
-repository = "https://github.com/Rob2309/derive-debug"
+edition = "2021"
+exclude = [".vscode"]
+keywords = ["derive", "debug"]
 license = "MIT"
-keywords = [ "derive", "debug" ]
-categories = [ "development-tools", "development-tools::debugging" ]
-exclude = [ ".vscode" ]
+name = "derive-debug-plus"
+repository = "https://github.com/2A5F/derive-debug-plus"
+version = "0.2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.49"
-quote = "1.0.23"
-syn = "1.0.107"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = "1.0"

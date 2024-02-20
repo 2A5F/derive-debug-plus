@@ -79,6 +79,19 @@ enum Foo {
 
     // Outputs: Foo { field_a: true, not_field_b: 42 }
 ```
+- `#[dbg(alias_expr = "\"some_alias\"")]` will print `some_alias` as field name instead of the real name
+```rust
+    use derive_debug::Dbg;
+
+    #[derive(Dbg)]
+    struct Foo {
+        field_a: bool,
+        #[dbg(alias="\"not_field_b\"")]
+        field_b: u32,
+    }
+
+    // Outputs: Foo { field_a: true, not_field_b: 42 }
+```
 - `#[dbg(fmt = "{:#06X}")]` will print the field with the specified format
 ```rust
     use derive_debug::Dbg;

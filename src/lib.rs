@@ -3,8 +3,8 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
-    parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Fields,
-    FieldsNamed, FieldsUnnamed, Ident, Lit, LitStr, Meta, MetaNameValue, NestedMeta, Path, Variant,
+    parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Expr, Fields, FieldsNamed,
+    FieldsUnnamed, Ident, Lit, LitStr, Meta, MetaNameValue, NestedMeta, Path, Variant,
 };
 
 /// Derive macro generating an implementation of [`Debug`](std::fmt::Debug)
@@ -26,10 +26,13 @@ fn derive_debug_impl(item: DeriveInput) -> TokenStream {
         Err(e) => return e.to_compile_error(),
     };
 
-    let display_name = if let Some(alias) = options.alias {
-        alias
+    let display_name = if let Some(alias_expr) = options.alias_expr {
+        alias_expr
+    } else if let Some(alias) = options.alias {
+        syn::parse_quote! { #alias }
     } else {
-        name.to_string()
+        let alias = name.to_string();
+        syn::parse_quote_spanned! { name.span() => #alias }
     };
 
     let res = match &item.data {
@@ -53,7 +56,7 @@ fn derive_debug_impl(item: DeriveInput) -> TokenStream {
     }
 }
 
-fn derive_struct(display_name: &str, data: &DataStruct) -> Result<TokenStream, syn::Error> {
+fn derive_struct(display_name: &Expr, data: &DataStruct) -> Result<TokenStream, syn::Error> {
     match &data.fields {
         Fields::Named(fields) => {
             let fields = derive_named_fields(fields, true)?;
@@ -103,10 +106,13 @@ fn derive_enum_variants<'a>(
 
         let options = parse_options(&variant.attrs, OptionsTarget::EnumVariant)?;
 
-        let display_name = if let Some(alias) = options.alias {
-            alias
+        let display_name = if let Some(alias_expr) = options.alias_expr {
+            alias_expr
+        } else if let Some(alias) = options.alias {
+            syn::parse_quote! { #alias }
         } else {
-            name.to_string()
+            let alias = name.to_string();
+            syn::parse_quote_spanned! { name.span() => #alias }
         };
 
         let derive_variant = match options.print_type {
@@ -123,7 +129,7 @@ fn derive_enum_variants<'a>(
 
 fn derive_variant(
     name: &Ident,
-    display_name: &str,
+    display_name: &Expr,
     fields: &Fields,
 ) -> Result<TokenStream, syn::Error> {
     let match_list = derive_match_list(fields)?;
@@ -147,7 +153,7 @@ fn derive_variant(
 
 fn skip_variant(
     name: &Ident,
-    display_name: &str,
+    display_name: &Expr,
     fields: &Fields,
 ) -> Result<TokenStream, syn::Error> {
     match fields {
@@ -201,10 +207,13 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
 
         let options = parse_options(&field.attrs, OptionsTarget::NamedField)?;
 
-        let name_str = if let Some(alias) = options.alias {
-            alias
+        let name_str = if let Some(alias_expr) = options.alias_expr {
+            alias_expr
+        } else if let Some(alias) = options.alias {
+            syn::parse_quote! { #alias }
         } else {
-            name.to_string()
+            let alias = name.to_string();
+            syn::parse_quote_spanned! { name.span() => #alias }
         };
 
         match options.print_type {
@@ -233,7 +242,9 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
                 } else {
                     quote! { #name }
                 };
-                res.extend(quote! { .field(#name_str, &format_args!("{}", #formatter(#field_ref))) })
+                res.extend(
+                    quote! { .field(#name_str, &format_args!("{}", #formatter(#field_ref))) },
+                )
             }
             FieldPrintType::Skip => {}
         }
@@ -300,6 +311,7 @@ enum FieldPrintType {
 struct FieldOutputOptions {
     print_type: FieldPrintType,
     alias: Option<String>,
+    alias_expr: Option<Expr>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -317,6 +329,7 @@ fn parse_options(
     let mut res = FieldOutputOptions {
         print_type: FieldPrintType::Normal,
         alias: None,
+        alias_expr: None,
     };
 
     for attrib in attributes {
@@ -360,6 +373,14 @@ fn parse_options(
                 }
                 NestedMeta::Meta(Meta::NameValue(MetaNameValue {
                     path,
+                    lit: Lit::Str(alias_expr),
+                    ..
+                })) if path.is_ident("alias_expr") && target != OptionsTarget::UnnamedField => {
+                    let expr = syn::parse_str::<Expr>(&alias_expr.value())?;
+                    res.alias_expr = Some(expr)
+                }
+                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
+                    path,
                     lit: Lit::Str(fmt),
                     ..
                 })) if path.is_ident("fmt")
@@ -376,7 +397,8 @@ fn parse_options(
                     && (target == OptionsTarget::NamedField
                         || target == OptionsTarget::UnnamedField) =>
                 {
-                    let path = syn::parse_str::<Path>(&custom.value()).map_err(|e| syn::Error::new(custom.span(), e.to_string()))?;
+                    let path = syn::parse_str::<Path>(&custom.value())
+                        .map_err(|e| syn::Error::new(custom.span(), e.to_string()))?;
                     res.print_type = FieldPrintType::Custom(path);
                 }
                 _ => return Err(syn::Error::new_spanned(option, "invalid option")),
