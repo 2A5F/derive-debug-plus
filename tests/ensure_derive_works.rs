@@ -18,25 +18,36 @@ struct TestStruct {
     fmt_field: u32,
     #[dbg(expr = &"123")]
     expr_field: u32,
+    #[dbg(flat_option)]
+    flat_opt: Option<u32>,
+    #[dbg(flat_option)]
+    flat_opt_some: Option<u32>,
+    #[dbg(sort = -1)]
+    sort: u32,
 }
 
 #[test]
 fn test_struct() {
     let foo = TestStruct {
         fmt_field: 0xAB,
+        flat_opt_some: Some(1),
         ..TestStruct::default()
     };
+
+    println!("\n{:#?}\n", foo);
 
     assert_eq!(
         format!("\n{:#?}\n", foo),
         r#"
 TestStructAlias 123 {
+    sort: 0,
     plain_field: 0,
     alias_field_alias: 0,
     placeholder_field: ...,
     alias_placeholder_field_alias: abc,
     fmt_field: 0x00AB,
     expr_field: "123",
+    flat_opt_some: 1,
 }
 "#
     );

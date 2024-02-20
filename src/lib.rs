@@ -4,8 +4,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     parse_macro_input, punctuated::Punctuated, spanned::Spanned, token::Comma, Attribute, DataEnum,
-    DataStruct, DeriveInput, Error, Expr, Fields, FieldsNamed, FieldsUnnamed, Ident, LitStr,
-    Meta, Path, Token, Variant,
+    DataStruct, DeriveInput, Error, Expr, Fields, FieldsNamed, FieldsUnnamed, Ident, LitInt,
+    LitStr, Meta, Path, Token, Variant,
 };
 
 /// Derive macro generating an implementation of [`Debug`](std::fmt::Debug)
@@ -60,17 +60,17 @@ fn derive_struct(display_name: &Expr, data: &DataStruct) -> Result<TokenStream, 
         Fields::Named(fields) => {
             let fields = derive_named_fields(fields, true)?;
             Ok(quote! {
-                f.debug_struct(#display_name)
-                    #fields
-                    .finish()
+                let mut fd = f.debug_struct(#display_name);
+                #fields
+                fd.finish()
             })
         }
         Fields::Unnamed(fields) => {
             let fields = derive_unnamed_fields(fields, true)?;
             Ok(quote! {
-                f.debug_tuple(#display_name)
-                    #fields
-                    .finish()
+                let mut fd = f.debug_tuple(#display_name);
+                #fields
+                fd.finish()
             })
         }
         Fields::Unit => Ok(quote! {
@@ -135,13 +135,21 @@ fn derive_variant(
         Fields::Named(fields) => {
             let fields = derive_named_fields(fields, false)?;
             Ok(quote! {
-                Self::#name #match_list => f.debug_struct(#display_name) #fields .finish(),
+                Self::#name #match_list => {
+                    let mut fd = f.debug_struct(#display_name);
+                    #fields
+                    fd.finish()
+                },
             })
         }
         Fields::Unnamed(fields) => {
             let fields = derive_unnamed_fields(fields, false)?;
             Ok(quote! {
-                Self::#name #match_list => f.debug_tuple(#display_name) #fields .finish(),
+                Self::#name #match_list => {
+                    let mut fd = f.debug_tuple(#display_name);
+                    #fields
+                    fd.finish()
+                },
             })
         }
         Fields::Unit => Ok(quote! { Self::#name => write!(f, #display_name), }),
@@ -199,10 +207,22 @@ fn derive_match_list(fields: &Fields) -> Result<TokenStream, syn::Error> {
 fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStream, syn::Error> {
     let mut res = TokenStream::new();
 
-    for field in &fields.named {
-        let name = field.ident.as_ref().unwrap();
+    let mut _fields: Vec<_> = vec![];
 
+    for (i, field) in fields.named.iter().enumerate() {
         let options = parse_options(&field.attrs, OptionsTarget::NamedField)?;
+
+        _fields.push((i, field, options));
+    }
+
+    _fields.sort_by_key(|(i, _, ref options)| (options.sort, *i));
+
+    for (i, field, options) in _fields.into_iter() {
+        if let FieldPrintType::Skip = options.print_type {
+            continue;
+        }
+
+        let name = field.ident.as_ref().unwrap();
 
         let name_str = if let Some(alias) = options.alias {
             alias
@@ -211,38 +231,48 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
             syn::parse_quote_spanned! { name.span() => #alias }
         };
 
-        match options.print_type {
+        let field_ref = if use_self {
+            quote! { &self.#name }
+        } else {
+            quote! { #name }
+        };
+
+        let alias_ident = format_ident!("_{}", i);
+
+        if !matches!(
+            options.print_type,
+            FieldPrintType::Placeholder(_) | FieldPrintType::Expr(_)
+        ) {
+            res.extend(quote! {
+                let #alias_ident = #field_ref;
+            });
+        }
+
+        let q = match options.print_type {
             FieldPrintType::Normal => {
-                let field_ref = if use_self {
-                    quote! { &self.#name }
-                } else {
-                    quote! { #name }
-                };
-                res.extend(quote! { .field(#name_str, #field_ref) });
+                quote! { fd.field(#name_str, #alias_ident); }
             }
             FieldPrintType::Placeholder(placeholder) => {
-                res.extend(quote! { .field(#name_str, &format_args!(#placeholder)) })
+                quote! { fd.field(#name_str, &format_args!(#placeholder)); }
             }
             FieldPrintType::Format(fmt) => {
-                let field_ref = if use_self {
-                    quote! { self.#name }
-                } else {
-                    quote! { #name }
-                };
-                res.extend(quote! { .field(#name_str, &format_args!(#fmt, #field_ref)) })
+                quote! { fd.field(#name_str, &format_args!(#fmt, #alias_ident)); }
             }
             FieldPrintType::Custom(formatter) => {
-                let field_ref = if use_self {
-                    quote! { &self.#name }
-                } else {
-                    quote! { #name }
-                };
-                res.extend(
-                    quote! { .field(#name_str, &format_args!("{}", #formatter(#field_ref))) },
-                )
+                quote! { fd.field(#name_str, &format_args!("{}", #formatter(#alias_ident))); }
             }
-            FieldPrintType::Expr(expr) => res.extend(quote! { .field(#name_str, #expr) }),
-            FieldPrintType::Skip => {}
+            FieldPrintType::Expr(expr) => {
+                quote! { fd.field(#name_str, #expr); }
+            }
+            FieldPrintType::Skip => {
+                quote! {}
+            }
+        };
+
+        if options.flat_option {
+            res.extend(quote! { if let Some(#alias_ident) = #alias_ident { #q } });
+        } else {
+            res.extend(q)
         }
     }
 
@@ -255,44 +285,64 @@ fn derive_unnamed_fields(
 ) -> Result<TokenStream, syn::Error> {
     let mut res = TokenStream::new();
 
+    let mut _fields: Vec<_> = vec![];
+
     for (i, field) in fields.unnamed.iter().enumerate() {
         let options = parse_options(&field.attrs, OptionsTarget::UnnamedField)?;
 
-        match options.print_type {
+        _fields.push((i, field, options));
+    }
+
+    _fields.sort_by_key(|(i, _, ref options)| (options.sort, *i));
+
+    for (i, _field, options) in _fields.into_iter() {
+        if let FieldPrintType::Skip = options.print_type {
+            continue;
+        }
+
+        let field_ref = if use_self {
+            let index = syn::Index::from(i);
+            quote! { &self.#index }
+        } else {
+            format_ident!("field_{}", i).to_token_stream()
+        };
+
+        let alias_ident = format_ident!("_{}", i);
+
+        if !matches!(
+            options.print_type,
+            FieldPrintType::Placeholder(_) | FieldPrintType::Expr(_)
+        ) {
+            res.extend(quote! {
+                let #alias_ident = #field_ref;
+            });
+        }
+
+        let q = match options.print_type {
             FieldPrintType::Normal => {
-                let field_ref = if use_self {
-                    let index = syn::Index::from(i);
-                    quote! { &self.#index }
-                } else {
-                    format_ident!("field_{}", i).to_token_stream()
-                };
-                res.extend(quote! { .field(#field_ref) });
+                quote! { fd.field(#alias_ident); }
             }
             FieldPrintType::Placeholder(placeholder) => {
-                res.extend(quote! { .field(&format_args!(#placeholder)) })
+                quote! { fd.field(&format_args!(#placeholder)); }
             }
             FieldPrintType::Format(fmt) => {
-                let field_ref = if use_self {
-                    let index = syn::Index::from(i);
-                    quote! { self.#index }
-                } else {
-                    format_ident!("field_{}", i).to_token_stream()
-                };
-                res.extend(quote! { .field(&format_args!(#fmt, #field_ref)) })
+                quote! { fd.field(&format_args!(#fmt, #alias_ident)); }
             }
             FieldPrintType::Custom(formatter) => {
-                let field_ref = if use_self {
-                    let index = syn::Index::from(i);
-                    quote! { &self.#index }
-                } else {
-                    format_ident!("field_{}", i).to_token_stream()
-                };
-                res.extend(quote! { .field(&format_args!("{}", #formatter(#field_ref))) });
+                quote! { fd.field(&format_args!("{}", #formatter(#alias_ident))); }
             }
             FieldPrintType::Expr(expr) => {
-                res.extend(quote! { .field(#expr) });
+                quote! { fd.field(#expr); }
             }
-            FieldPrintType::Skip => {}
+            FieldPrintType::Skip => {
+                quote! {}
+            }
+        };
+
+        if options.flat_option {
+            res.extend(quote! { if let Some(#alias_ident) = #alias_ident { #q } });
+        } else {
+            res.extend(q)
         }
     }
 
@@ -311,6 +361,8 @@ enum FieldPrintType {
 struct FieldOutputOptions {
     print_type: FieldPrintType,
     alias: Option<Expr>,
+    flat_option: bool,
+    sort: isize,
 }
 
 #[derive(PartialEq, Eq)]
@@ -328,6 +380,8 @@ fn parse_options(
     let mut res = FieldOutputOptions {
         print_type: FieldPrintType::Normal,
         alias: None,
+        flat_option: false,
+        sort: 0,
     };
 
     for attrib in attributes {
@@ -350,8 +404,14 @@ fn parse_options(
 
         for option in options.options {
             match option.option {
+                TheOption::Sort(sort) if target != OptionsTarget::DeriveItem => {
+                    res.sort = sort.base10_parse()?
+                }
                 TheOption::Skip if target != OptionsTarget::DeriveItem => {
                     res.print_type = FieldPrintType::Skip
+                }
+                TheOption::FlatOption if target != OptionsTarget::DeriveItem => {
+                    res.flat_option = true
                 }
                 TheOption::Alias(alias) if target != OptionsTarget::UnnamedField => {
                     res.alias = Some(alias)
@@ -401,11 +461,13 @@ struct OptionItem {
 
 enum TheOption {
     Skip,
+    FlatOption,
     Alias(Expr),
     Placeholder(LitStr),
     Fmt(LitStr),
     Expr(Expr),
     Formatter(Path),
+    Sort(LitInt),
 }
 
 impl syn::parse::Parse for OptionItem {
@@ -416,6 +478,12 @@ impl syn::parse::Parse for OptionItem {
             return Ok(Self {
                 path,
                 option: TheOption::Skip,
+            });
+        }
+        if path.is_ident("flat_option") {
+            return Ok(Self {
+                path,
+                option: TheOption::FlatOption,
             });
         }
         if path.is_ident("alias") {
@@ -456,6 +524,14 @@ impl syn::parse::Parse for OptionItem {
             return Ok(Self {
                 path,
                 option: TheOption::Formatter(a),
+            });
+        }
+        if path.is_ident("sort") {
+            let _ = input.parse::<Token![=]>()?;
+            let a = input.parse()?;
+            return Ok(Self {
+                path,
+                option: TheOption::Sort(a),
             });
         }
 

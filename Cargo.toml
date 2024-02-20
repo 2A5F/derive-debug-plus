@@ -8,7 +8,7 @@ keywords = ["derive", "debug"]
 license = "MIT"
 name = "derive-debug-plus"
 repository = "https://github.com/2A5F/derive-debug-plus"
-version = "0.3.0"
+version = "0.4.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]

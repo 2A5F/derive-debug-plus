@@ -2,17 +2,23 @@
 
 This crate implements a more customizable version of `#[derive(Debug)]`.
 
-### ***This is a fork of [derive-debug](https://github.com/Rob2309/derive-debug)***  
+### **_This is a fork of [derive-debug](https://github.com/Rob2309/derive-debug)_**
+
 #### The difference
+
 - alias allow expr
 - expr option
+- sort
+- flat option
 
 # Usage
+
 The usage is very similar to `#[derive(Debug)]` with a few extra customization options.
 
 ## Deriving a struct
+
 ```rust
-use derive_debug::Dbg;
+use derive_debug_plus::Dbg;
 
 #[derive(Dbg)]
 struct Foo {
@@ -29,8 +35,9 @@ struct Foo {
 ```
 
 # Deriving an enum
+
 ```rust
-use derive_debug::Dbg;
+use derive_debug_plus::Dbg;
 
 #[derive(Dbg)]
 enum Foo {
@@ -44,10 +51,13 @@ enum Foo {
 ```
 
 ## Detailed options
+
 ### Field Options
+
 - `#[dbg(skip)]` completely omits a field in the output
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     struct Foo {
@@ -58,9 +68,11 @@ enum Foo {
 
     // Outputs: Foo { field_a: true }
 ```
+
 - `#[dbg(placeholder = "xyz")]` will print `xyz` instead of the actual contents of a field
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     struct Foo {
@@ -71,24 +83,28 @@ enum Foo {
 
     // Outputs: Foo { field_a: true, field_b: ... }
 ```
+
 - `#[dbg(alias = "some_alias")]` will print `some_alias` as field name instead of the real name
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     struct Foo {
         field_a: bool,
         #[dbg(alias = "not_field_b")]
         field_b: u32,
-        #[dbg(alias = &format("expr_{}", "b"))]
+        #[dbg(alias = &format!("expr_{}", "b"))]
         field_c: u32,
     }
 
     // Outputs: Foo { field_a: true, not_field_b: 42, expr_b: 137 }
 ```
+
 - `#[dbg(fmt = "{:#06X}")]` will print the field with the specified format
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     struct Foo {
@@ -99,13 +115,15 @@ enum Foo {
 
     // Outputs: Foo { field_a: true, field_b: 0x002A }
 ```
+
 - `#[dbg(formatter = "my_func")]` will print the field using the specified function.  
-The function has to return a type that can be formatted using "{}"
+  The function has to return a type that can be formatted using "{}"
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
-    struct Foo(u32, #[dbg(formatter = "fmt_not_zero")] u32);
+    struct Foo(u32, #[dbg(formatter = fmt_not_zero)] u32);
 
     fn fmt_not_zero(v: &u32) -> &'static str {
         if *v == 0 {
@@ -117,9 +135,11 @@ The function has to return a type that can be formatted using "{}"
 
     // Outputs: Foo(42, not 0)
 ```
+
 - `#[dbg(expr = &"123")]` will pass the expression directly into
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     struct Foo {
@@ -131,10 +151,43 @@ The function has to return a type that can be formatted using "{}"
     // Outputs: Foo { field_a: true, field_b: "123" }
 ```
 
-### Enum Variant Options
-- `#[dbg(skip)]` only prints the name of the variant and omits its contents
+- `#[dbg(sort = -1)]`
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
+
+    #[derive(Dbg)]
+    struct Foo {
+        field_a: bool,
+        #[dbg(sort = -1)]
+        field_b: u32,
+    }
+
+    // Outputs: Foo { field_b: 123, field_a: true }
+```
+
+- `#[dbg(flat_option)]`
+
+```rust
+    use derive_debug_plus::Dbg;
+
+    #[derive(Dbg)]
+    struct Foo {
+        #[dbg(flat_option)]
+        field_a: Option<u32>, // None
+        #[dbg(flat_option)]
+        field_b: Option<u32>, // Some
+    }
+
+    // Outputs: Foo { field_b: 123 }
+```
+
+### Enum Variant Options
+
+- `#[dbg(skip)]` only prints the name of the variant and omits its contents
+
+```rust
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     enum Foo {
@@ -144,9 +197,11 @@ The function has to return a type that can be formatted using "{}"
 
     // Outputs: SomeVariant
 ```
+
 - `#[dbg(alias = "some_alias")]` will use `some_alias` as variant name instead of the real name
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     enum Foo {
@@ -158,9 +213,11 @@ The function has to return a type that can be formatted using "{}"
 ```
 
 ### struct Options
+
 - `#[dbg(alias = "MyAlias")]` will use `MyAlias` as struct name instead of the real name
+
 ```rust
-    use derive_debug::Dbg;
+    use derive_debug_plus::Dbg;
 
     #[derive(Dbg)]
     #[dbg(alias = "NotFoo")]
