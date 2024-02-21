@@ -217,7 +217,7 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
 
     _fields.sort_by_key(|(i, _, ref options)| (options.sort, *i));
 
-    for (i, field, options) in _fields.into_iter() {
+    for (_, field, options) in _fields.into_iter() {
         if let FieldPrintType::Skip = options.print_type {
             continue;
         }
@@ -237,7 +237,7 @@ fn derive_named_fields(fields: &FieldsNamed, use_self: bool) -> Result<TokenStre
             quote! { #name }
         };
 
-        let alias_ident = format_ident!("_{}", i);
+        let alias_ident = format_ident!("_it");
 
         if !matches!(
             options.print_type,
@@ -307,7 +307,7 @@ fn derive_unnamed_fields(
             format_ident!("field_{}", i).to_token_stream()
         };
 
-        let alias_ident = format_ident!("_{}", i);
+        let alias_ident = format_ident!("_it");
 
         if !matches!(
             options.print_type,
